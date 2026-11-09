@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Slope 3D</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #050508; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+    #canvas-container { position: relative; width: 100%; flex: 1; }
+    canvas { width: 100%; height: 100%; display: block; }
+    #hud { position: absolute; top: 16px; left: 0; width: 100%; display: flex; justify-content: space-around; font-size: 18px; font-weight: 800; text-shadow: 0 0 10px #22c55e; pointer-events: none; z-index: 10; }
+    .val { color: #4ade80; font-family: monospace; font-size: 24px; }
+    #overlay { position: absolute; inset: 0; background: rgba(5,5,8,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 20; }
+    h1 { font-size: 48px; font-weight: 900; letter-spacing: 2px; color: #4ade80; text-shadow: 0 0 30px rgba(34,197,94,0.6); margin-bottom: 8px; }
+    p { font-size: 16px; color: #cbd5e1; margin-bottom: 24px; }
+    .btn { background: #22c55e; color: #022c14; border: none; padding: 14px 36px; border-radius: 8px; font-size: 18px; font-weight: 900; cursor: pointer; transition: 0.15s; box-shadow: 0 0 20px rgba(34,197,94,0.5); }
+    .btn:hover { background: #4ade80; transform: scale(1.05); }
+    .tips { margin-top: 16px; font-size: 13px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div id="canvas-container">
+    <div id="hud">
+      <div>SCORE: <span id="score" class="val">0</span></div>
+      <div>SPEED: <span id="speed" class="val">1.0x</span></div>
+      <div>BEST: <span id="best" class="val">0</span></div>
+    </div>
+    <canvas id="c"></canvas>
+    <div id="overlay">
+      <h1 id="title">SLOPE 3D</h1>
+      <p id="sub">Steer the ball down the endless neon grid. Dodge red blocks!</p>
+      <button class="btn" id="start-btn" onclick="startGame()">PLAY GAME</button>
+      <div class="tips">Use [A / D] or [Left / Right Arrow] or Drag Mouse to Steer</div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const speedEl = document.getElementById('speed');
+    const bestEl = document.getElementById('best');
+    const overlay = document.getElementById('overlay');
+    const titleEl = document.getElementById('title');
+    const subEl = document.getElementById('sub');
+
+    let width, height;
+    function resize() {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    let bestScore = parseInt(localStorage.getItem('slope_best') || '0');
+    bestEl.textContent = bestScore;
+
+    let playing = false;
+    let score = 0;
+    let baseSpeed = 14;
+    let speed = baseSpeed;
+    let ball = { x: 0, y: 0, z: 0, r: 16, vx: 0 };
+    let obstacles = [];
+    let segments = [];
+    const TRACK_WIDTH = 340;
+
+    function initTrack() {
+      obstacles = [];
+      segments = [];
+      for (let z = 0; z < 4000; z += 60) {
+        segments.push({ z: z });
+        if (z > 400 && Math.random() < 0.35) {
+          obstacles.push({
+            x: (Math.random() - 0.5) * (TRACK_WIDTH - 60),
+            z: z,
+            w: 50 + Math.random() * 40,
+            h: 40
+          });
+        }
+      }
+    }
+
+    function startGame() {
+      playing = true;
+      overlay.style.display = 'none';
+      score = 0;
+      speed = baseSpeed;
+      ball = { x: 0, y: 0, z: 0, r: 16, vx: 0 };
+      initTrack();
+    }
+
+    function gameOver() {
+      playing = false;
+      if (score > bestScore) {
+        bestScore = score;
+        localStorage.setItem('slope_best', bestScore);
+        bestEl.textContent = bestScore;
+      }
+      titleEl.textContent = 'CRASHED!';
+      subEl.textContent = `You scored ${score} meters!`;
+      document.getElementById('start-btn').textContent = 'PLAY AGAIN';
+      overlay.style.display = 'flex';
+    }
+
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.code] = true; });
+    window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+    let pointerX = 0;
+    window.addEventListener('pointermove', e => {
+      if (playing) {
+        pointerX = (e.clientX / width - 0.5) * 2;
+      }
+    });
+
+    function update() {
+      if (!playing) return;
+
+      // Accelerate gradually
+      speed += 0.003;
+      score += Math.floor(speed * 0.08);
+      scoreEl.textContent = score;
+      speedEl.textContent = (speed / baseSpeed).toFixed(1) + 'x';
+
+      // Ball steering
+      if (keys['ArrowLeft'] || keys['KeyA']) ball.vx -= 1.8;
+      else if (keys['ArrowRight'] || keys['KeyD']) ball.vx += 1.8;
+      else if (pointerX !== 0) ball.vx += pointerX * 1.5;
+
+      ball.vx *= 0.88; // friction
+      ball.x += ball.vx;
+
+      // Fall off slope edge
+      if (Math.abs(ball.x) > TRACK_WIDTH / 2) {
+        gameOver();
+        return;
+      }
+
+      ball.z += speed;
+
+      // Move track forward
+      for (let s of segments) {
+        if (s.z < ball.z) s.z += 4000;
+      }
+
+      // Check obstacles
+      for (let o of obstacles) {
+        if (o.z < ball.z) {
+          o.z += 4000;
+          o.x = (Math.random() - 0.5) * (TRACK_WIDTH - 60);
+        }
+
+        // Collision check
+        if (Math.abs(o.z - ball.z) < 25 && Math.abs(ball.x - o.x) < (o.w / 2 + ball.r * 0.7)) {
+          gameOver();
+          return;
+        }
+      }
+    }
+
+    function render() {
+      ctx.fillStyle = '#060a08';
+      ctx.fillRect(0, 0, width, height);
+
+      const fov = 380;
+      const cameraY = 140;
+      const cameraZ = ball.z - 220;
+      const cx = width / 2;
+      const cy = height / 2 + 30;
+
+      // Draw Grid Runway Lines
+      ctx.strokeStyle = '#153e24';
+      ctx.lineWidth = 1.5;
+
+      // Draw Slope Surface
+      segments.sort((a,b) => b.z - a.z);
+      for (let s of segments) {
+        let dz = s.z - cameraZ;
+        if (dz <= 10) continue;
+        let scale = fov / dz;
+        let y = cy + cameraY * scale;
+        let x1 = cx + (-TRACK_WIDTH/2) * scale;
+        let x2 = cx + (TRACK_WIDTH/2) * scale;
+
+        ctx.strokeStyle = '#1b4a2d';
+        ctx.beginPath();
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        ctx.stroke();
+      }
+
+      // Track Border Neon Beams
+      let p1 = { x: -TRACK_WIDTH/2, z: cameraZ + 50 };
+      let p2 = { x: -TRACK_WIDTH/2, z: cameraZ + 3000 };
+      let p3 = { x: TRACK_WIDTH/2, z: cameraZ + 50 };
+      let p4 = { x: TRACK_WIDTH/2, z: cameraZ + 3000 };
+
+      let s1 = fov / (p1.z - cameraZ);
+      let s2 = fov / (p2.z - cameraZ);
+
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 4;
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = '#22c55e';
+      ctx.beginPath();
+      ctx.moveTo(cx + p1.x * s1, cy + cameraY * s1);
+      ctx.lineTo(cx + p2.x * s2, cy + cameraY * s2);
+      ctx.moveTo(cx + p3.x * s1, cy + cameraY * s1);
+      ctx.lineTo(cx + p4.x * s2, cy + cameraY * s2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Draw Obstacles (Red Neon Blocks)
+      obstacles.sort((a, b) => b.z - a.z);
+      for (let o of obstacles) {
+        let dz = o.z - cameraZ;
+        if (dz <= 20 || dz > 3000) continue;
+        let scale = fov / dz;
+        let ox = cx + o.x * scale;
+        let oy = cy + (cameraY - o.h/2) * scale;
+        let ow = o.w * scale;
+        let oh = o.h * scale;
+
+        ctx.fillStyle = '#ef4444';
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = '#ef4444';
+        ctx.fillRect(ox - ow/2, oy - oh/2, ow, oh);
+        ctx.strokeStyle = '#fca5a5';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ox - ow/2, oy - oh/2, ow, oh);
+        ctx.shadowBlur = 0;
+      }
+
+      // Draw Glowing Green Ball
+      let bdz = ball.z - cameraZ;
+      let bscale = fov / bdz;
+      let bx = cx + ball.x * bscale;
+      let by = cy + (cameraY - ball.r) * bscale;
+      let br = ball.r * bscale;
+
+      ctx.fillStyle = '#4ade80';
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = '#22c55e';
+      ctx.beginPath();
+      ctx.arc(bx, by, Math.max(4, br), 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ball highlight
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(bx - br*0.3, by - br*0.3, Math.max(1, br*0.3), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>

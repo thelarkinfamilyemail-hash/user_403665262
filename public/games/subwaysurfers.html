@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Subway Surfers</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #030712; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+    #hud { width: 440px; max-width: 95vw; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-weight: bold; font-size: 16px; color: #38bdf8; }
+    canvas { background: #0f172a; border: 3px solid #0284c7; border-radius: 8px; width: 440px; height: 520px; max-width: 95vw; max-height: 80vh; box-shadow: 0 0 25px rgba(2,132,199,0.3); }
+    .controls-hint { margin-top: 8px; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <span>SCORE: <span id="score" style="color:#facc15;">0</span></span>
+    <span>COINS: <span id="coins" style="color:#fbbf24;">0</span></span>
+    <span>HI: <span id="high" style="color:#38bdf8;">0</span></span>
+  </div>
+  <canvas id="c" width="440" height="520"></canvas>
+  <div class="controls-hint">[A / D or Left / Right] Switch Lanes · [W / Up] Jump · [S / Down] Roll</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const coinsEl = document.getElementById('coins');
+    const highEl = document.getElementById('high');
+
+    let high = parseInt(localStorage.getItem('subway_high') || '0');
+    highEl.textContent = high;
+
+    let score = 0, coins = 0;
+    let speed = 7, frame = 0;
+    let over = false;
+
+    // Player in 3 lanes: -1 (left), 0 (center), 1 (right)
+    let player = {
+      lane: 0,
+      targetX: 220,
+      x: 220,
+      y: 420,
+      vy: 0,
+      isJumping: false,
+      isRolling: false,
+      rollTimer: 0
+    };
+
+    const LANES = [140, 220, 300];
+    let obstacles = [];
+    let coinItems = [];
+
+    function spawnObstacle() {
+      let lane = Math.floor(Math.random() * 3);
+      let type = Math.random() < 0.45 ? 'train' : (Math.random() < 0.5 ? 'high_barrier' : 'low_barrier');
+      obstacles.push({
+        lane: lane,
+        z: 800,
+        type: type,
+        w: type === 'train' ? 55 : 45,
+        h: type === 'train' ? 70 : (type === 'high_barrier' ? 40 : 22)
+      });
+
+      // Spawn coins in a lane
+      if (Math.random() < 0.7) {
+        let coinLane = (lane + 1) % 3;
+        for (let i = 0; i < 4; i++) {
+          coinItems.push({ lane: coinLane, z: 800 + i * 60, taken: false });
+        }
+      }
+    }
+
+    function jump() {
+      if (over) { restart(); return; }
+      if (!player.isJumping) {
+        player.vy = -12;
+        player.isJumping = true;
+      }
+    }
+
+    function roll() {
+      if (over) return;
+      if (player.isJumping) {
+        player.vy = 12; // Fast drop
+      }
+      player.isRolling = true;
+      player.rollTimer = 35;
+    }
+
+    function changeLane(dir) {
+      if (over) return;
+      player.lane = Math.max(0, Math.min(2, player.lane + dir));
+      player.targetX = LANES[player.lane];
+    }
+
+    window.addEventListener('keydown', e => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') changeLane(-1);
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') changeLane(1);
+      if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') jump();
+      if (e.code === 'ArrowDown' || e.code === 'KeyS') roll();
+    });
+
+    // Touch swipe
+    let touchStartX = 0, touchStartY = 0;
+    canvas.addEventListener('touchstart', e => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    });
+    canvas.addEventListener('touchend', e => {
+      let dx = e.changedTouches[0].clientX - touchStartX;
+      let dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 30) changeLane(1); else if (dx < -30) changeLane(-1);
+      } else {
+        if (dy < -30) jump(); else if (dy > 30) roll();
+      }
+    });
+
+    function restart() {
+      score = 0; coins = 0; speed = 7; frame = 0; over = false;
+      player = { lane: 1, targetX: 220, x: 220, y: 420, vy: 0, isJumping: false, isRolling: false, rollTimer: 0 };
+      obstacles = []; coinItems = [];
+    }
+
+    function update() {
+      if (over) return;
+      frame++;
+      score += 0.4;
+      speed = 7 + Math.floor(score / 300) * 0.5;
+      scoreEl.textContent = Math.floor(score);
+
+      // Smooth horizontal lane slide
+      player.x += (player.targetX - player.x) * 0.25;
+
+      // Jump physics
+      if (player.isJumping) {
+        player.vy += 0.7;
+        player.y += player.vy;
+        if (player.y >= 420) {
+          player.y = 420;
+          player.vy = 0;
+          player.isJumping = false;
+        }
+      }
+
+      // Roll timer
+      if (player.isRolling) {
+        player.rollTimer--;
+        if (player.rollTimer <= 0) player.isRolling = false;
+      }
+
+      // Spawn
+      if (frame % Math.max(35, 80 - Math.floor(speed * 3)) === 0) {
+        spawnObstacle();
+      }
+
+      // Update obstacles
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        let o = obstacles[i];
+        o.z -= speed * 1.6;
+
+        // Collision detection when close to player plane (z ~ 50)
+        if (o.z < 80 && o.z > -20 && player.lane === o.lane) {
+          let hit = false;
+          if (o.type === 'train') hit = true;
+          else if (o.type === 'low_barrier' && player.y > 380) hit = true;
+          else if (o.type === 'high_barrier' && !player.isRolling) hit = true;
+
+          if (hit) {
+            over = true;
+            if (score > high) { high = Math.floor(score); localStorage.setItem('subway_high', high); highEl.textContent = high; }
+          }
+        }
+        if (o.z < -60) obstacles.splice(i, 1);
+      }
+
+      // Update coins
+      for (let i = coinItems.length - 1; i >= 0; i--) {
+        let c = coinItems[i];
+        c.z -= speed * 1.6;
+
+        if (!c.taken && c.z < 80 && c.z > -20 && player.lane === c.lane) {
+          c.taken = true;
+          coins++;
+          coinsEl.textContent = coins;
+        }
+        if (c.z < -60) coinItems.splice(i, 1);
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 3D Perspective Subway Tracks
+      const cx = 220, cy = 160;
+
+      // Ground & Tunnel
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height);
+      ctx.lineTo(80, cy);
+      ctx.lineTo(360, cy);
+      ctx.lineTo(canvas.width, canvas.height);
+      ctx.fill();
+
+      // 3 Train Track Rails
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 3;
+      [80, 160, 240, 320].forEach(trackX => {
+        ctx.beginPath();
+        ctx.moveTo(cx + (trackX - 200) * 0.3, cy);
+        ctx.lineTo(cx + (trackX - 200) * 1.6, canvas.height);
+        ctx.stroke();
+      });
+
+      // Obstacles
+      obstacles.sort((a,b) => b.z - a.z);
+      for (let o of obstacles) {
+        let scale = 250 / (o.z + 100);
+        let ox = cx + (LANES[o.lane] - cx) * scale * 1.6;
+        let oy = cy + 180 * scale;
+        let ow = o.w * scale * 1.8;
+        let oh = o.h * scale * 1.8;
+
+        if (o.type === 'train') {
+          ctx.fillStyle = '#3b82f6';
+          ctx.fillRect(ox - ow/2, oy - oh, ow, oh);
+          ctx.fillStyle = '#facc15';
+          ctx.fillRect(ox - ow/3, oy - oh * 0.8, ow * 0.66, oh * 0.25); // Windshield
+        } else if (o.type === 'high_barrier') {
+          ctx.fillStyle = '#ef4444';
+          ctx.fillRect(ox - ow/2, oy - oh, ow, oh * 0.4); // Overhead bar
+          ctx.fillStyle = '#94a3b8';
+          ctx.fillRect(ox - ow/2, oy - oh, 4, oh);
+          ctx.fillRect(ox + ow/2 - 4, oy - oh, 4, oh);
+        } else {
+          ctx.fillStyle = '#f97316';
+          ctx.fillRect(ox - ow/2, oy - oh, ow, oh);
+        }
+      }
+
+      // Coins
+      for (let c of coinItems) {
+        if (c.taken) continue;
+        let scale = 250 / (c.z + 100);
+        let cxPos = cx + (LANES[c.lane] - cx) * scale * 1.6;
+        let cyPos = cy + 170 * scale;
+        ctx.fillStyle = '#facc15';
+        ctx.beginPath();
+        ctx.arc(cxPos, cyPos - 10 * scale, 8 * scale, 0, Math.PI*2);
+        ctx.fill();
+      }
+
+      // Player Jake
+      let ph = player.isRolling ? 22 : 46;
+      let py = player.y - ph;
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.beginPath();
+      ctx.ellipse(player.x, 422, 16, 6, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // Cap
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(player.x, py + 8, 8, 0, Math.PI*2);
+      ctx.fill();
+      // Hoodie
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillRect(player.x - 10, py + 14, 20, player.isRolling ? 10 : 20);
+      // Pants
+      if (!player.isRolling) {
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(player.x - 8, py + 34, 6, 12);
+        ctx.fillRect(player.x + 2, py + 34, 6, 12);
+      }
+
+      if (over) {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('INSPECTOR CAUGHT YOU!', 220, 220);
+        ctx.fillStyle = '#facc15';
+        ctx.font = '20px sans-serif';
+        ctx.fillText('Score: ' + Math.floor(score) + ' · Coins: ' + coins, 220, 260);
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('Press SPACE or Tap to Play Again', 220, 310);
+      }
+    }
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>

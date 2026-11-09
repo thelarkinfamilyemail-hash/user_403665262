@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Retro Bowl</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #0a170f; color: #fff; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+    #score-board { width: 640px; max-width: 96vw; background: #060e09; border: 3px solid #22c55e; border-radius: 8px 8px 0 0; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; font-size: 16px; font-weight: bold; }
+    .team { color: #facc15; font-size: 20px; }
+    .score { font-size: 24px; color: #fff; }
+    canvas { background: #15803d; border: 3px solid #22c55e; border-top: none; border-radius: 0 0 8px 8px; width: 640px; height: 420px; max-width: 96vw; max-height: 70vh; cursor: crosshair; }
+    #msg-bar { margin-top: 10px; font-size: 14px; color: #86efac; font-weight: bold; text-align: center; }
+    .controls-hint { font-size: 11px; color: #64748b; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div id="score-board">
+    <div><span class="team">HOME</span> <span id="home-score" class="score">0</span></div>
+    <div>Q<span id="quarter">1</span> <span id="clock">02:45</span> | <span id="down-text" style="color:#4ade80;">1st & 10</span></div>
+    <div><span id="away-score" class="score">0</span> <span class="team" style="color:#ef4444;">AWAY</span></div>
+  </div>
+  <canvas id="c" width="640" height="420"></canvas>
+  <div id="msg-bar">Click & Drag back from QB to aim pass · Release to throw!</div>
+  <div class="controls-hint">After catch, use [WASD] or [Arrow Keys] to juke & sprint!</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+
+    let homeScore = 0, awayScore = 0;
+    let quarter = 1, clockSec = 165;
+    let down = 1, yardsToGo = 10;
+    let ballLine = 20; // 0 to 100 yards
+
+    // Game states: 'PRE_SNAP', 'AIMING', 'PASS_IN_AIR', 'RUNNING', 'PLAY_OVER', 'TOUCHDOWN'
+    let state = 'PRE_SNAP';
+    let qb = { x: 100, y: 210 };
+    let ball = { x: 100, y: 210, targetX: 0, targetY: 0, vx: 0, vy: 0, inAir: false };
+    let receivers = [];
+    let defenders = [];
+    let ballCarrier = null;
+    let aimStart = null;
+    let currentAim = null;
+
+    function resetPlay() {
+      state = 'PRE_SNAP';
+      qb = { x: 80, y: 210, tackled: false };
+      ball = { x: 80, y: 210, targetX: 0, targetY: 0, vx: 0, vy: 0, inAir: false };
+      ballCarrier = null;
+      aimStart = null;
+      currentAim = null;
+
+      // Setup 3 Wide Receivers
+      receivers = [
+        { x: 100, y: 80, vx: 2.8, vy: (Math.random() - 0.5) * 0.8, caught: false, num: 88 },
+        { x: 100, y: 210, vx: 3.2, vy: (Math.random() - 0.5) * 1.5, caught: false, num: 11 },
+        { x: 100, y: 340, vx: 2.9, vy: (Math.random() - 0.5) * 0.8, caught: false, num: 81 }
+      ];
+
+      // Setup 4 Defenders
+      defenders = [
+        { x: 260, y: 90, speed: 2.4 },
+        { x: 290, y: 170, speed: 2.5 },
+        { x: 290, y: 250, speed: 2.5 },
+        { x: 260, y: 330, speed: 2.4 }
+      ];
+
+      document.getElementById('down-text').textContent = `${down}${down===1?'st':down===2?'nd':down===3?'rd':'th'} & ${yardsToGo}`;
+    }
+
+    resetPlay();
+
+    canvas.addEventListener('mousedown', e => {
+      if (state === 'PRE_SNAP') {
+        const rect = canvas.getBoundingClientRect();
+        aimStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        currentAim = { ...aimStart };
+        state = 'AIMING';
+      }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      if (state === 'AIMING') {
+        const rect = canvas.getBoundingClientRect();
+        currentAim = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      }
+    });
+
+    canvas.addEventListener('mouseup', e => {
+      if (state === 'AIMING') {
+        // Throw ball based on drag vector
+        let dx = (aimStart.x - currentAim.x) * 1.8;
+        let dy = (aimStart.y - currentAim.y) * 1.8;
+        let dist = Math.hypot(dx, dy);
+
+        if (dist > 20) {
+          ball.vx = Math.min(12, Math.max(4, dx * 0.08));
+          ball.vy = dy * 0.08;
+          ball.inAir = true;
+          state = 'PASS_IN_AIR';
+        } else {
+          state = 'PRE_SNAP';
+        }
+      }
+    });
+
+    // Keyboard controls for running with the ball
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.code] = true; });
+    window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+    function update() {
+      // Receivers run routes
+      if (state === 'AIMING' || state === 'PASS_IN_AIR') {
+        receivers.forEach(r => {
+          r.x += r.vx;
+          r.y += r.vy;
+          r.y = Math.max(40, Math.min(380, r.y));
+        });
+
+        // Defenders track closest receiver or ball
+        defenders.forEach(d => {
+          let target = state === 'PASS_IN_AIR' ? ball : receivers[0];
+          let minD = 999;
+          receivers.forEach(r => {
+            let dist = Math.hypot(d.x - r.x, d.y - r.y);
+            if (dist < minD) { minD = dist; target = r; }
+          });
+
+          let angle = Math.atan2(target.y - d.y, target.x - d.x);
+          d.x += Math.cos(angle) * d.speed;
+          d.y += Math.sin(angle) * d.speed;
+        });
+      }
+
+      // Pass traveling
+      if (state === 'PASS_IN_AIR') {
+        ball.x += ball.vx;
+        ball.y += ball.vy;
+
+        // Check if receiver catches
+        receivers.forEach(r => {
+          if (Math.hypot(ball.x - r.x, ball.y - r.y) < 22) {
+            r.caught = true;
+            ballCarrier = r;
+            state = 'RUNNING';
+            document.getElementById('msg-bar').textContent = 'CAUGHT! Run for the Endzone!';
+          }
+        });
+
+        // Ball out of bounds or incomplete
+        if (ball.x > canvas.width || ball.y < 0 || ball.y > canvas.height) {
+          state = 'PLAY_OVER';
+          document.getElementById('msg-bar').textContent = 'INCOMPLETE PASS!';
+          setTimeout(handleNextDown, 1200);
+        }
+      }
+
+      // Ball carrier running with ball
+      if (state === 'RUNNING' && ballCarrier) {
+        if (keys['ArrowUp'] || keys['KeyW']) ballCarrier.y -= 3.2;
+        if (keys['ArrowDown'] || keys['KeyS']) ballCarrier.y += 3.2;
+        if (keys['ArrowRight'] || keys['KeyD']) ballCarrier.x += 3.4;
+        if (keys['ArrowLeft'] || keys['KeyA']) ballCarrier.x -= 2.0;
+
+        ballCarrier.y = Math.max(30, Math.min(390, ballCarrier.y));
+
+        // Defenders swarm ball carrier
+        defenders.forEach(d => {
+          let angle = Math.atan2(ballCarrier.y - d.y, ballCarrier.x - d.x);
+          d.x += Math.cos(angle) * (d.speed * 1.15);
+          d.y += Math.sin(angle) * (d.speed * 1.15);
+
+          // Tackle!
+          if (Math.hypot(d.x - ballCarrier.x, d.y - ballCarrier.y) < 18) {
+            state = 'PLAY_OVER';
+            let yardsGained = Math.floor((ballCarrier.x - 80) / 10);
+            document.getElementById('msg-bar').textContent = `TACKLED! Gained ${Math.max(0, yardsGained)} yards!`;
+            setTimeout(() => {
+              applyGain(yardsGained);
+            }, 1200);
+          }
+        });
+
+        // Touchdown check (cross x = 580)
+        if (ballCarrier.x >= 570) {
+          state = 'TOUCHDOWN';
+          homeScore += 7;
+          document.getElementById('home-score').textContent = homeScore;
+          document.getElementById('msg-bar').textContent = 'TOUCHDOWN! 🎉 +7 POINTS!';
+          setTimeout(() => {
+            ballLine = 20;
+            down = 1;
+            yardsToGo = 10;
+            resetPlay();
+          }, 2000);
+        }
+      }
+    }
+
+    function applyGain(yards) {
+      yardsToGo -= yards;
+      if (yardsToGo <= 0) {
+        down = 1;
+        yardsToGo = 10;
+        document.getElementById('msg-bar').textContent = 'FIRST DOWN! 🏈';
+      } else {
+        down++;
+        if (down > 4) {
+          down = 1;
+          yardsToGo = 10;
+          document.getElementById('msg-bar').textContent = 'TURNOVER ON DOWNS!';
+        }
+      }
+      resetPlay();
+    }
+
+    function handleNextDown() {
+      down++;
+      if (down > 4) {
+        down = 1;
+        yardsToGo = 10;
+        document.getElementById('msg-bar').textContent = 'TURNOVER ON DOWNS!';
+      }
+      resetPlay();
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Grass stripes
+      for (let i = 0; i < 10; i++) {
+        ctx.fillStyle = i % 2 === 0 ? '#16a34a' : '#15803d';
+        ctx.fillRect(i * 64, 0, 64, canvas.height);
+      }
+
+      // Endzones
+      ctx.fillStyle = '#1e3a8a';
+      ctx.fillRect(0, 0, 50, canvas.height);
+      ctx.fillStyle = '#b91c1c';
+      ctx.fillRect(590, 0, 50, canvas.height);
+
+      // Yard lines
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      for (let i = 50; i <= 590; i += 54) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, canvas.height);
+        ctx.stroke();
+      }
+
+      // First Down Yellow Marker Line
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 4;
+      let markerX = Math.min(580, 80 + yardsToGo * 10);
+      ctx.beginPath();
+      ctx.moveTo(markerX, 0);
+      ctx.lineTo(markerX, canvas.height);
+      ctx.stroke();
+
+      // Draw QB
+      if (state !== 'RUNNING' && state !== 'TOUCHDOWN') {
+        drawPlayer(qb.x, qb.y, '#3b82f6', '#fff', 'QB');
+      }
+
+      // Draw Receivers
+      receivers.forEach(r => {
+        drawPlayer(r.x, r.y, '#60a5fa', '#fff', String(r.num));
+      });
+
+      // Draw Defenders
+      defenders.forEach(d => {
+        drawPlayer(d.x, d.y, '#dc2626', '#fff', 'D');
+      });
+
+      // Draw Aiming Passing Arc
+      if (state === 'AIMING' && aimStart && currentAim) {
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        let targetX = qb.x + (aimStart.x - currentAim.x) * 1.8;
+        let targetY = qb.y + (aimStart.y - currentAim.y) * 1.8;
+        ctx.beginPath();
+        ctx.moveTo(qb.x, qb.y);
+        ctx.quadraticCurveTo((qb.x + targetX)/2, Math.min(qb.y, targetY) - 50, targetX, targetY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Target reticle
+        ctx.beginPath();
+        ctx.arc(targetX, targetY, 12, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+      // Draw Ball
+      if (state === 'PASS_IN_AIR') {
+        ctx.fillStyle = '#78350f';
+        ctx.beginPath();
+        ctx.ellipse(ball.x, ball.y, 8, 5, 0.4, 0, Math.PI*2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    function drawPlayer(x, y, jerseyColor, numColor, label) {
+      // Helmet
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(x, y - 8, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // Jersey
+      ctx.fillStyle = jerseyColor;
+      ctx.fillRect(x - 8, y - 2, 16, 14);
+      // Pants
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(x - 7, y + 12, 6, 8);
+      ctx.fillRect(x + 1, y + 12, 6, 8);
+      // Number
+      ctx.fillStyle = numColor;
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, x, y + 8);
+    }
+
+    function gameLoop() {
+      update();
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+  </script>
+</body>
+</html>

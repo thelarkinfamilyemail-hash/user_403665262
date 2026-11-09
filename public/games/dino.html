@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chrome Dino Runner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #f7f7f7; color: #535353; font-family: monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; transition: background 0.5s; }
+    body.night { background: #202124; color: #e8eaed; }
+    #hud { width: 560px; max-width: 95vw; display: flex; justify-content: flex-end; gap: 16px; font-size: 18px; font-weight: bold; margin-bottom: 8px; }
+    canvas { background: transparent; border: 2px solid #ccc; border-radius: 6px; width: 560px; height: 220px; max-width: 95vw; cursor: pointer; }
+    .hint { margin-top: 10px; font-size: 13px; color: #757575; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <span>HI <span id="high">00000</span></span>
+    <span><span id="score">00000</span></span>
+  </div>
+  <canvas id="c" width="560" height="220"></canvas>
+  <div class="hint">Press [SPACE] or [UP] to Jump · [DOWN] to Duck</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const highEl = document.getElementById('high');
+
+    let high = parseInt(localStorage.getItem('dino_orig_high') || '0');
+    highEl.textContent = String(high).padStart(5, '0');
+
+    let score = 0, speed = 6, frame = 0, over = false;
+    let isNight = false;
+
+    let dino = {
+      x: 50,
+      y: 154,
+      vy: 0,
+      w: 28,
+      h: 36,
+      jumping: false,
+      ducking: false
+    };
+
+    let obstacles = [];
+
+    function jump() {
+      if (over) { restart(); return; }
+      if (!dino.jumping) {
+        dino.vy = -11.5;
+        dino.jumping = true;
+      }
+    }
+
+    function restart() {
+      score = 0; speed = 6; frame = 0; over = false;
+      dino = { x: 50, y: 154, vy: 0, w: 28, h: 36, jumping: false, ducking: false };
+      obstacles = [];
+      document.body.classList.remove('night');
+    }
+
+    window.addEventListener('keydown', e => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') { jump(); e.preventDefault(); }
+      if (e.code === 'ArrowDown') dino.ducking = true;
+    });
+    window.addEventListener('keyup', e => {
+      if (e.code === 'ArrowDown') dino.ducking = false;
+    });
+    canvas.addEventListener('pointerdown', jump);
+
+    function update() {
+      if (over) return;
+      frame++;
+      score += 0.25;
+      speed = 6 + Math.floor(score / 200) * 0.5;
+
+      let scoreInt = Math.floor(score);
+      scoreEl.textContent = String(scoreInt).padStart(5, '0');
+
+      // Day / Night cycle every 500 pts
+      isNight = Math.floor(scoreInt / 500) % 2 === 1;
+      document.body.className = isNight ? 'night' : '';
+
+      // Dino physics
+      dino.vy += 0.65; // gravity
+      dino.y += dino.vy;
+
+      let groundY = dino.ducking ? 168 : 154;
+      if (dino.y >= groundY) {
+        dino.y = groundY;
+        dino.vy = 0;
+        dino.jumping = false;
+      }
+
+      // Obstacle spawner
+      if (frame % Math.floor(Math.max(45, 95 - speed * 3.5)) === 0) {
+        let isBird = scoreInt > 100 && Math.random() < 0.3;
+        obstacles.push({
+          x: canvas.width,
+          y: isBird ? (Math.random() < 0.5 ? 120 : 145) : 156,
+          w: isBird ? 30 : (Math.random() < 0.3 ? 34 : 20),
+          h: isBird ? 18 : 34,
+          isBird: isBird
+        });
+      }
+
+      // Update obstacles
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        let o = obstacles[i];
+        o.x -= speed;
+
+        // Collision check
+        let dw = dino.ducking ? 38 : dino.w;
+        let dh = dino.ducking ? 22 : dino.h;
+        if (dino.x < o.x + o.w && dino.x + dw > o.x && dino.y < o.y + o.h && dino.y + dh > o.y) {
+          over = true;
+          if (scoreInt > high) {
+            high = scoreInt;
+            localStorage.setItem('dino_orig_high', high);
+            highEl.textContent = String(high).padStart(5, '0');
+          }
+        }
+        if (o.x < -40) obstacles.splice(i, 1);
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let fg = isNight ? '#e8eaed' : '#535353';
+
+      // Ground Line
+      ctx.strokeStyle = fg;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 190);
+      ctx.lineTo(canvas.width, 190);
+      ctx.stroke();
+
+      // Ground bumps
+      for (let i = 0; i < 6; i++) {
+        let bx = ((i * 110) - (frame * speed) % 660);
+        if (bx < 0) bx += 660;
+        ctx.fillStyle = fg;
+        ctx.fillRect(bx, 193, 3, 2);
+        ctx.fillRect(bx + 12, 195, 6, 2);
+      }
+
+      // Obstacles
+      ctx.fillStyle = fg;
+      for (let o of obstacles) {
+        if (o.isBird) {
+          // Bird wings animation
+          let wingUp = Math.floor(frame / 12) % 2 === 0;
+          ctx.fillRect(o.x, o.y + (wingUp ? 0 : 6), o.w, 8);
+          ctx.fillRect(o.x + 8, o.y + (wingUp ? -6 : 10), 12, 6);
+        } else {
+          // Cactus
+          ctx.fillRect(o.x + 6, o.y, o.w - 12, o.h);
+          ctx.fillRect(o.x, o.y + 8, 8, 12);
+          ctx.fillRect(o.x + o.w - 8, o.y + 12, 8, 12);
+        }
+      }
+
+      // Dino T-Rex
+      ctx.fillStyle = fg;
+      if (dino.ducking) {
+        ctx.fillRect(dino.x, dino.y, 38, 22);
+        ctx.fillRect(dino.x + 30, dino.y - 4, 12, 12); // head
+      } else {
+        ctx.fillRect(dino.x, dino.y, dino.w, dino.h);
+        ctx.fillRect(dino.x + 14, dino.y - 8, 18, 14); // head
+      }
+      // Eye
+      ctx.fillStyle = isNight ? '#202124' : '#f7f7f7';
+      ctx.fillRect(dino.x + (dino.ducking ? 36 : 22), dino.y - (dino.ducking ? 2 : 6), 3, 3);
+
+      if (over) {
+        ctx.fillStyle = fg;
+        ctx.font = 'bold 24px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('G A M E   O V E R', canvas.width/2, 90);
+        ctx.font = '14px monospace';
+        ctx.fillText('Press SPACE to Restart', canvas.width/2, 120);
+      }
+    }
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>

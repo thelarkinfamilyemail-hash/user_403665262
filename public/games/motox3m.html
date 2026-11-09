@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Moto X3M Bike Race</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #0f172a; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+    #hud { width: 560px; max-width: 95vw; display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; color: #f59e0b; margin-bottom: 6px; }
+    canvas { background: #1e293b; border: 3px solid #f59e0b; border-radius: 8px; width: 560px; height: 320px; max-width: 95vw; box-shadow: 0 0 25px rgba(245,158,11,0.3); }
+    .hint { margin-top: 8px; font-size: 12px; color: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <span>TIME: <span id="time" style="color:#fff;">0.0s</span></span>
+    <span>FLIPS: <span id="flips" style="color:#22c55e;">0</span></span>
+    <span>LEVEL: 1</span>
+  </div>
+  <canvas id="c" width="560" height="320"></canvas>
+  <div class="hint">[W / UP] Gas · [S / DOWN] Brake · [A / D / LEFT / RIGHT] Lean & Flip!</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const timeEl = document.getElementById('time');
+    const flipsEl = document.getElementById('flips');
+
+    let startTime = Date.now();
+    let totalFlips = 0;
+    let cameraX = 0;
+    let over = false, won = false;
+
+    let bike = {
+      x: 80,
+      y: 200,
+      vx: 0,
+      vy: 0,
+      angle: 0,
+      vAngle: 0,
+      grounded: false
+    };
+
+    // Track Terrain Heightmap function
+    function getTerrainY(x) {
+      if (x < 200) return 250;
+      if (x < 450) return 250 - Math.sin((x - 200) / 250 * Math.PI) * 55; // Ramp 1
+      if (x < 700) return 250 - Math.sin((x - 450) / 250 * Math.PI) * 75; // Big Jump
+      if (x < 1000) return 250;
+      if (x < 1300) return 250 - Math.sin((x - 1000) / 300 * Math.PI) * 80; // Mega Hill
+      return 250;
+    }
+
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.code] = true; });
+    window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+    function restart() {
+      bike = { x: 80, y: 200, vx: 0, vy: 0, angle: 0, vAngle: 0, grounded: false };
+      startTime = Date.now();
+      totalFlips = 0;
+      flipsEl.textContent = '0';
+      cameraX = 0;
+      over = false;
+      won = false;
+    }
+
+    let prevAngle = 0;
+    let rotationAccum = 0;
+
+    function update() {
+      if (over || won) return;
+
+      timeEl.textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+
+      // Controls
+      if (keys['ArrowUp'] || keys['KeyW']) {
+        bike.vx += 0.35;
+      }
+      if (keys['ArrowDown'] || keys['KeyS']) {
+        bike.vx *= 0.88;
+      }
+      if (keys['ArrowLeft'] || keys['KeyA']) {
+        bike.vAngle -= 0.008;
+      }
+      if (keys['ArrowRight'] || keys['KeyD']) {
+        bike.vAngle += 0.008;
+      }
+
+      // Physics
+      bike.vx *= 0.98;
+      bike.vAngle *= 0.92;
+      bike.vy += 0.45; // gravity
+
+      bike.x += bike.vx;
+      bike.y += bike.vy;
+      bike.angle += bike.vAngle;
+
+      // Track flips in air
+      rotationAccum += bike.vAngle;
+      if (Math.abs(rotationAccum) >= Math.PI * 1.8) {
+        totalFlips++;
+        flipsEl.textContent = totalFlips;
+        rotationAccum = 0;
+      }
+
+      // Terrain collision
+      let groundY = getTerrainY(bike.x);
+      if (bike.y >= groundY - 14) {
+        bike.y = groundY - 14;
+        bike.vy = 0;
+        bike.grounded = true;
+
+        // Align with terrain slope
+        let slope = (getTerrainY(bike.x + 8) - getTerrainY(bike.x - 8)) / 16;
+        let targetAngle = Math.atan(slope);
+
+        // Crash check if landed upside down
+        let normAngle = ((bike.angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (normAngle > Math.PI * 0.55 && normAngle < Math.PI * 1.45) {
+          over = true;
+        }
+
+        bike.angle += (targetAngle - bike.angle) * 0.15;
+      } else {
+        bike.grounded = false;
+      }
+
+      // Camera
+      cameraX = bike.x - 160;
+
+      // Finish line
+      if (bike.x >= 1400) {
+        won = true;
+      }
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Sky gradient
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Mountains backdrop
+      ctx.fillStyle = '#1e293b';
+      for (let i = 0; i < 6; i++) {
+        let mx = (i * 200) - cameraX * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(mx, 320);
+        ctx.lineTo(mx + 100, 150);
+        ctx.lineTo(mx + 200, 320);
+        ctx.fill();
+      }
+
+      // Terrain Dirt Ground
+      ctx.fillStyle = '#78350f';
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height);
+
+      for (let sx = 0; sx <= canvas.width; sx += 8) {
+        let worldX = sx + cameraX;
+        let gy = getTerrainY(worldX);
+        ctx.lineTo(sx, gy);
+      }
+      ctx.lineTo(canvas.width, canvas.height);
+      ctx.closePath();
+      ctx.fill();
+
+      // Grass top on terrain
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      for (let sx = 0; sx <= canvas.width; sx += 8) {
+        let worldX = sx + cameraX;
+        let gy = getTerrainY(worldX);
+        if (sx === 0) ctx.moveTo(sx, gy);
+        else ctx.lineTo(sx, gy);
+      }
+      ctx.stroke();
+
+      // Finish Banner (x = 1400)
+      let fx = 1400 - cameraX;
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(fx, getTerrainY(1400) - 80, 8, 80);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(fx + 8, getTerrainY(1400) - 80, 36, 24);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText('FINISH', fx + 10, getTerrainY(1400) - 64);
+
+      // Draw Bike & Rider
+      ctx.save();
+      let screenX = bike.x - cameraX;
+      ctx.translate(screenX, bike.y);
+      ctx.rotate(bike.angle);
+
+      // Wheels
+      ctx.fillStyle = '#000';
+      ctx.beginPath(); ctx.arc(-14, 8, 8, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(14, 8, 8, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#94a3b8';
+      ctx.beginPath(); ctx.arc(-14, 8, 3, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(14, 8, 3, 0, Math.PI*2); ctx.fill();
+
+      // Bike Frame (Orange/Neon)
+      ctx.strokeStyle = '#f97316';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-14, 8);
+      ctx.lineTo(0, -2);
+      ctx.lineTo(14, 8);
+      ctx.lineTo(4, -8);
+      ctx.closePath();
+      ctx.stroke();
+
+      // Rider body
+      ctx.fillStyle = '#22c55e';
+      ctx.fillRect(-4, -14, 8, 12);
+      // Helmet
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath(); ctx.arc(0, -18, 6, 0, Math.PI*2); ctx.fill();
+
+      ctx.restore();
+
+      if (over) {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 30px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('CRASHED!', 280, 140);
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('Click or Press SPACE to Retry', 280, 180);
+      } else if (won) {
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#22c55e';
+        ctx.font = 'bold 32px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('STAGE CLEARED! 🏁', 280, 140);
+        ctx.fillStyle = '#facc15';
+        ctx.font = '18px sans-serif';
+        ctx.fillText(`Time: ${timeEl.textContent} · Flips: ${totalFlips}`, 280, 180);
+        ctx.fillStyle = '#fff';
+        ctx.font = '15px sans-serif';
+        ctx.fillText('Click to Play Again', 280, 220);
+      }
+    }
+
+    canvas.addEventListener('click', () => { if (over || won) restart(); });
+    window.addEventListener('keydown', e => { if ((over || won) && e.code === 'Space') restart(); });
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+    loop();
+  </script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cookie Clicker</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #120b08; color: #fef3c7; font-family: 'Georgia', serif; height: 100vh; display: flex; overflow: hidden; }
+    #cookie-section { flex: 1.2; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border-right: 3px solid #382414; background: radial-gradient(circle at center, #2e1a0e 0%, #120b08 80%); }
+    #stats { text-align: center; margin-bottom: 20px; }
+    #cookie-count { font-size: 38px; font-weight: bold; color: #f59e0b; text-shadow: 0 0 15px rgba(245,158,11,0.5); }
+    #cps-count { font-size: 16px; color: #d97706; margin-top: 4px; }
+    #big-cookie { width: 220px; height: 220px; cursor: pointer; transition: transform 0.08s ease; filter: drop-shadow(0 0 25px rgba(217,119,6,0.5)); border-radius: 50%; }
+    #big-cookie:hover { transform: scale(1.04); }
+    #big-cookie:active { transform: scale(0.94); }
+    #store-section { flex: 1.3; background: #190f09; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; }
+    h2 { font-size: 20px; font-weight: bold; color: #fbbf24; border-bottom: 2px solid #3b2011; padding-bottom: 8px; margin-bottom: 12px; letter-spacing: 1px; }
+    .store-item { background: #26160c; border: 1px solid #4a2914; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: 0.15s; }
+    .store-item:hover:not(.disabled) { background: #3b2213; border-color: #f59e0b; }
+    .store-item.disabled { opacity: 0.45; cursor: not-allowed; }
+    .item-title { font-weight: bold; font-size: 15px; color: #fff; }
+    .item-desc { font-size: 12px; color: #d97706; }
+    .item-price { font-size: 14px; font-weight: bold; color: #facc15; }
+    .float-text { position: absolute; font-weight: bold; font-size: 24px; color: #fbbf24; pointer-events: none; animation: floatAnim 0.8s ease-out forwards; }
+    @keyframes floatAnim { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-60px); } }
+    #golden-cookie { position: absolute; width: 60px; height: 60px; cursor: pointer; display: none; filter: drop-shadow(0 0 20px #facc15); animation: spin 4s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="cookie-section">
+    <div id="stats">
+      <div id="cookie-count">0 cookies</div>
+      <div id="cps-count">per second: 0</div>
+    </div>
+    <svg id="big-cookie" viewBox="0 0 100 100">
+      <defs>
+        <radialGradient id="cg" cx="40%" cy="40%" r="60%">
+          <stop offset="0%" stop-color="#d97706"/>
+          <stop offset="70%" stop-color="#b45309"/>
+          <stop offset="100%" stop-color="#78350f"/>
+        </radialGradient>
+      </defs>
+      <circle cx="50" cy="50" r="46" fill="url(#cg)" stroke="#451a03" stroke-width="3"/>
+      <!-- Chocolate chips -->
+      <circle cx="34" cy="30" r="5" fill="#381b0a"/>
+      <circle cx="62" cy="32" r="6" fill="#381b0a"/>
+      <circle cx="48" cy="48" r="6.5" fill="#381b0a"/>
+      <circle cx="28" cy="64" r="5.5" fill="#381b0a"/>
+      <circle cx="68" cy="62" r="5" fill="#381b0a"/>
+      <circle cx="50" cy="74" r="4.5" fill="#381b0a"/>
+    </svg>
+    <div id="golden-cookie" title="Golden Cookie! Click for Frenzy!">🍪</div>
+  </div>
+
+  <div id="store-section">
+    <h2>BAKERY STORE & UPGRADES</h2>
+    <div id="items-list"></div>
+  </div>
+
+  <script>
+    let cookies = parseFloat(localStorage.getItem('real_cookie_count') || '0');
+    let frenzyMultiplier = 1;
+
+    const buildings = [
+      { id: 'cursor', name: 'Cursor', baseCost: 15, cps: 0.1, count: 0 },
+      { id: 'grandma', name: 'Grandma', baseCost: 100, cps: 1, count: 0 },
+      { id: 'farm', name: 'Cookie Farm', baseCost: 1100, cps: 8, count: 0 },
+      { id: 'mine', name: 'Chocolate Mine', baseCost: 12000, cps: 47, count: 0 },
+      { id: 'factory', name: 'Cookie Factory', baseCost: 130000, cps: 260, count: 0 },
+      { id: 'bank', name: 'Bank of Cookies', baseCost: 1400000, cps: 1400, count: 0 },
+      { id: 'temple', name: 'Cookie Temple', baseCost: 20000000, cps: 7800, count: 0 },
+      { id: 'portal', name: 'Cosmic Portal', baseCost: 330000000, cps: 44000, count: 0 }
+    ];
+
+    try {
+      const saved = JSON.parse(localStorage.getItem('real_cookie_buildings') || '[]');
+      saved.forEach(s => {
+        let b = buildings.find(x => x.id === s.id);
+        if (b) b.count = s.count;
+      });
+    } catch(e){}
+
+    function getCost(b) {
+      return Math.floor(b.baseCost * Math.pow(1.15, b.count));
+    }
+
+    function getCPS() {
+      let base = buildings.reduce((sum, b) => sum + b.count * b.cps, 0);
+      return base * frenzyMultiplier;
+    }
+
+    function renderStore() {
+      const list = document.getElementById('items-list');
+      list.innerHTML = '';
+      buildings.forEach(b => {
+        let cost = getCost(b);
+        let canAfford = cookies >= cost;
+        let el = document.createElement('div');
+        el.className = 'store-item ' + (canAfford ? '' : 'disabled');
+        el.innerHTML = `
+          <div>
+            <div class="item-title">${b.name} (${b.count})</div>
+            <div class="item-desc">+${b.cps} cookies/sec</div>
+          </div>
+          <div class="item-price">${cost.toLocaleString()} 🍪</div>
+        `;
+        el.onclick = () => buy(b);
+        list.appendChild(el);
+      });
+
+      document.getElementById('cookie-count').textContent = Math.floor(cookies).toLocaleString() + ' cookies';
+      document.getElementById('cps-count').textContent = 'per second: ' + getCPS().toFixed(1) + (frenzyMultiplier > 1 ? ' (7x FRENZY!)' : '');
+    }
+
+    function buy(b) {
+      let cost = getCost(b);
+      if (cookies >= cost) {
+        cookies -= cost;
+        b.count++;
+        save();
+        renderStore();
+      }
+    }
+
+    function save() {
+      localStorage.setItem('real_cookie_count', cookies);
+      localStorage.setItem('real_cookie_buildings', JSON.stringify(buildings.map(b => ({ id: b.id, count: b.count }))));
+    }
+
+    document.getElementById('big-cookie').addEventListener('click', e => {
+      let earned = 1 * frenzyMultiplier;
+      cookies += earned;
+      renderStore();
+      save();
+
+      // Floating text
+      let float = document.createElement('div');
+      float.className = 'float-text';
+      float.textContent = '+' + earned;
+      float.style.left = (e.clientX - 10) + 'px';
+      float.style.top = (e.clientY - 20) + 'px';
+      document.body.appendChild(float);
+      setTimeout(() => float.remove(), 800);
+    });
+
+    // Golden Cookie Spawner
+    const golden = document.getElementById('golden-cookie');
+    function spawnGolden() {
+      let x = 60 + Math.random() * (window.innerWidth * 0.4);
+      let y = 60 + Math.random() * (window.innerHeight - 140);
+      golden.style.left = x + 'px';
+      golden.style.top = y + 'px';
+      golden.style.display = 'block';
+
+      setTimeout(() => {
+        golden.style.display = 'none';
+      }, 9000);
+    }
+    golden.onclick = () => {
+      golden.style.display = 'none';
+      frenzyMultiplier = 7;
+      renderStore();
+      setTimeout(() => {
+        frenzyMultiplier = 1;
+        renderStore();
+      }, 15000);
+    };
+    setInterval(spawnGolden, 45000);
+
+    // Passive CPS tick
+    setInterval(() => {
+      cookies += getCPS() / 10;
+      renderStore();
+      save();
+    }, 100);
+
+    renderStore();
+  </script>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Google Snake</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #4a752c; color: #fff; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+    #bar { width: 440px; max-width: 95vw; background: #3c5d23; border-radius: 8px 8px 0 0; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: bold; }
+    .score-item { display: flex; align-items: center; gap: 8px; }
+    canvas { background: #578a34; border-radius: 0 0 8px 8px; width: 440px; height: 440px; max-width: 95vw; max-height: 75vh; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .hint { margin-top: 8px; font-size: 13px; color: #a3e635; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <div class="score-item">🍎 <span id="score">0</span></div>
+    <div class="score-item">🏆 <span id="high">0</span></div>
+  </div>
+  <canvas id="c" width="440" height="440"></canvas>
+  <div class="hint">Use [Arrow Keys] or [WASD] to control the Snake</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const highEl = document.getElementById('high');
+
+    const COLS = 17, ROWS = 17, CELL = 440 / 17;
+    let snake = [{x: 8, y: 8}, {x: 8, y: 9}, {x: 8, y: 10}];
+    let dir = {x: 0, y: -1}, nextDir = {x: 0, y: -1};
+    let food = {x: 12, y: 8};
+    let score = 0, high = parseInt(localStorage.getItem('snake_google_hi') || '0');
+    let loop, over = false;
+    highEl.textContent = high;
+
+    function spawnFood() {
+      food = {
+        x: Math.floor(Math.random() * COLS),
+        y: Math.floor(Math.random() * ROWS)
+      };
+      if (snake.some(p => p.x === food.x && p.y === food.y)) spawnFood();
+    }
+
+    function init() {
+      snake = [{x: 8, y: 8}, {x: 8, y: 9}, {x: 8, y: 10}];
+      dir = {x: 0, y: -1}; nextDir = {x: 0, y: -1};
+      score = 0; scoreEl.textContent = 0; over = false;
+      spawnFood();
+      clearInterval(loop);
+      loop = setInterval(tick, 95);
+    }
+
+    function tick() {
+      if (over) return;
+      dir = nextDir;
+      const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+      if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS ||
+          snake.some(p => p.x === head.x && p.y === head.y)) {
+        over = true;
+        clearInterval(loop);
+        draw(true);
+        return;
+      }
+
+      snake.unshift(head);
+      if (head.x === food.x && head.y === food.y) {
+        score++;
+        scoreEl.textContent = score;
+        if (score > high) { high = score; highEl.textContent = high; localStorage.setItem('snake_google_hi', high); }
+        spawnFood();
+      } else {
+        snake.pop();
+      }
+      draw();
+    }
+
+    function draw(isOver = false) {
+      // Checkerboard grass background
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          ctx.fillStyle = (r + c) % 2 === 0 ? '#aad751' : '#a2d149';
+          ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+        }
+      }
+
+      // Apple
+      ctx.fillStyle = '#e7471d';
+      ctx.beginPath();
+      ctx.arc(food.x * CELL + CELL/2, food.y * CELL + CELL/2, CELL/2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      // Leaf
+      ctx.fillStyle = '#388e3c';
+      ctx.fillRect(food.x * CELL + CELL/2, food.y * CELL + 2, 4, 5);
+
+      // Snake body
+      snake.forEach((p, idx) => {
+        ctx.fillStyle = idx === 0 ? '#4674e9' : '#5784f5';
+        ctx.beginPath();
+        ctx.arc(p.x * CELL + CELL/2, p.y * CELL + CELL/2, CELL/2 - 1, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (idx === 0) {
+          // Snake Eyes
+          ctx.fillStyle = '#fff';
+          let ex1 = p.x * CELL + CELL*0.35, ey1 = p.y * CELL + CELL*0.35;
+          let ex2 = p.x * CELL + CELL*0.65, ey2 = p.y * CELL + CELL*0.35;
+          ctx.beginPath(); ctx.arc(ex1, ey1, 3, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(ex2, ey2, 3, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#000';
+          ctx.beginPath(); ctx.arc(ex1, ey1, 1.5, 0, Math.PI*2); ctx.fill();
+          ctx.beginPath(); ctx.arc(ex2, ey2, 1.5, 0, Math.PI*2); ctx.fill();
+        }
+      });
+
+      if (isOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('GAME OVER', 220, 200);
+        ctx.font = '16px sans-serif';
+        ctx.fillText('Press SPACE to Restart', 220, 240);
+      }
+    }
+
+    window.addEventListener('keydown', e => {
+      if (['ArrowUp','KeyW'].includes(e.code) && dir.y !== 1) nextDir = {x: 0, y: -1};
+      if (['ArrowDown','KeyS'].includes(e.code) && dir.y !== -1) nextDir = {x: 0, y: 1};
+      if (['ArrowLeft','KeyA'].includes(e.code) && dir.x !== 1) nextDir = {x: -1, y: 0};
+      if (['ArrowRight','KeyD'].includes(e.code) && dir.x !== -1) nextDir = {x: 1, y: 0};
+      if (over && e.code === 'Space') init();
+    });
+
+    init();
+  </script>
+</body>
+</html>

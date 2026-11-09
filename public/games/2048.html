@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>2048 Original</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body { background: #faf8ef; color: #776e65; font-family: 'Clear Sans', 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
+    .container { width: 380px; max-width: 95vw; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    h1 { font-size: 50px; font-weight: bold; color: #776e65; line-height: 1; }
+    .scores { display: flex; gap: 6px; }
+    .score-box { background: #bbada0; padding: 6px 14px; border-radius: 4px; text-align: center; }
+    .score-label { font-size: 11px; font-weight: bold; color: #eee4da; text-transform: uppercase; }
+    .score-val { font-size: 18px; font-weight: bold; color: #fff; }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .intro { font-size: 13px; color: #776e65; }
+    .btn { background: #8f7a66; color: #f9f6f2; border: none; padding: 8px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.15s; }
+    .btn:hover { background: #9f8b77; }
+    #grid { width: 380px; height: 380px; max-width: 95vw; max-height: 95vw; background: #bbada0; border-radius: 8px; padding: 12px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; position: relative; }
+    .tile { border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: bold; transition: transform 0.1s; }
+    .t-0 { background: rgba(238, 228, 218, 0.35); }
+    .t-2 { background: #eee4da; color: #776e65; }
+    .t-4 { background: #ede0c8; color: #776e65; }
+    .t-8 { background: #f2b179; color: #f9f6f2; }
+    .t-16 { background: #f59563; color: #f9f6f2; font-size: 30px; }
+    .t-32 { background: #f67c5f; color: #f9f6f2; font-size: 30px; }
+    .t-64 { background: #f65e3b; color: #f9f6f2; font-size: 30px; }
+    .t-128 { background: #edcf72; color: #f9f6f2; font-size: 26px; box-shadow: 0 0 15px rgba(243, 215, 116, 0.4); }
+    .t-256 { background: #edcc61; color: #f9f6f2; font-size: 26px; box-shadow: 0 0 20px rgba(243, 215, 116, 0.5); }
+    .t-512 { background: #edc850; color: #f9f6f2; font-size: 26px; box-shadow: 0 0 25px rgba(243, 215, 116, 0.6); }
+    .t-1024 { background: #edc53f; color: #f9f6f2; font-size: 22px; box-shadow: 0 0 30px rgba(243, 215, 116, 0.7); }
+    .t-2048 { background: #edc22e; color: #f9f6f2; font-size: 22px; box-shadow: 0 0 35px rgba(243, 215, 116, 0.8); }
+    .hint { text-align: center; margin-top: 12px; font-size: 13px; color: #8f7a66; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>2048</h1>
+      <div class="scores">
+        <div class="score-box"><div class="score-label">SCORE</div><div class="score-val" id="score">0</div></div>
+        <div class="score-box"><div class="score-label">BEST</div><div class="score-val" id="best">0</div></div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="intro">Join the numbers and get to the <strong>2048 tile!</strong></div>
+      <button class="btn" onclick="init()">New Game</button>
+    </div>
+    <div id="grid"></div>
+    <div class="hint">Use <strong>Arrow Keys</strong> or <strong>Swipe</strong> to move tiles</div>
+  </div>
+
+  <script>
+    let grid = [], score = 0;
+    let best = parseInt(localStorage.getItem('orig_2048_best') || '0');
+    document.getElementById('best').textContent = best;
+
+    function init() {
+      grid = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+      score = 0;
+      addRandom(); addRandom();
+      render();
+    }
+
+    function addRandom() {
+      let empty = [];
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          if (!grid[r][c]) empty.push({ r, c });
+        }
+      }
+      if (empty.length) {
+        let p = empty[Math.floor(Math.random() * empty.length)];
+        grid[p.r][p.c] = Math.random() < 0.9 ? 2 : 4;
+      }
+    }
+
+    function render() {
+      const g = document.getElementById('grid');
+      g.innerHTML = '';
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          let v = grid[r][c];
+          let el = document.createElement('div');
+          el.className = 'tile t-' + (v <= 2048 ? v : 2048);
+          el.textContent = v ? v : '';
+          g.appendChild(el);
+        }
+      }
+      document.getElementById('score').textContent = score;
+      if (score > best) {
+        best = score;
+        document.getElementById('best').textContent = best;
+        localStorage.setItem('orig_2048_best', best);
+      }
+    }
+
+    function slide(row) {
+      let arr = row.filter(x => x);
+      for (let i = 0; i < arr.length - 1; i++) {
+        if (arr[i] === arr[i + 1]) {
+          arr[i] *= 2;
+          score += arr[i];
+          arr.splice(i + 1, 1);
+        }
+      }
+      while (arr.length < 4) arr.push(0);
+      return arr;
+    }
+
+    function move(dir) {
+      let changed = false;
+      if (dir === 'left' || dir === 'right') {
+        for (let r = 0; r < 4; r++) {
+          let row = grid[r].slice();
+          if (dir === 'right') row.reverse();
+          let res = slide(row);
+          if (dir === 'right') res.reverse();
+          if (res.join(',') !== grid[r].join(',')) changed = true;
+          grid[r] = res;
+        }
+      } else {
+        for (let c = 0; c < 4; c++) {
+          let col = [grid[0][c], grid[1][c], grid[2][c], grid[3][c]];
+          if (dir === 'down') col.reverse();
+          let res = slide(col);
+          if (dir === 'down') res.reverse();
+          for (let r = 0; r < 4; r++) {
+            if (grid[r][c] !== res[r]) changed = true;
+            grid[r][c] = res[r];
+          }
+        }
+      }
+      if (changed) {
+        addRandom();
+        render();
+      }
+    }
+
+    window.addEventListener('keydown', e => {
+      if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) e.preventDefault();
+      if (e.code === 'ArrowLeft') move('left');
+      if (e.code === 'ArrowRight') move('right');
+      if (e.code === 'ArrowUp') move('up');
+      if (e.code === 'ArrowDown') move('down');
+    });
+
+    let tx = 0, ty = 0;
+    window.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, {passive:true});
+    window.addEventListener('touchend', e => {
+      let dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 30) move('right'); else if (dx < -30) move('left');
+      } else {
+        if (dy > 30) move('down'); else if (dy < -30) move('up');
+      }
+    }, {passive:true});
+
+    init();
+  </script>
+</body>
+</html>

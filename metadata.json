@@ -1,0 +1,6 @@
+{
+  "name": "DILL PICKLE",
+  "description": "Unblocked games portal and stealth web browser featuring an iframe game library, tabbed browsing, and panic cloaking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
